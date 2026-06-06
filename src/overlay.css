@@ -40,7 +40,7 @@
 
 .tabqueue-item {
   display: grid;
-  grid-template-columns: 34px 28px minmax(0, 1fr);
+  grid-template-columns: 34px 28px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   width: 100%;
@@ -98,7 +98,8 @@
 }
 
 .tabqueue-title,
-.tabqueue-url {
+.tabqueue-url,
+.tabqueue-window {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -115,6 +116,21 @@
   color: #94a3b8;
   font-size: 12px;
   line-height: 1.25;
+}
+
+.tabqueue-window {
+  max-width: 120px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 0.09);
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.tabqueue-window-current {
+  color: #bfdbfe;
 }
 
 .tabqueue-empty {

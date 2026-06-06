@@ -3,7 +3,7 @@
   "name": "TabQueue Recent Tab Switcher",
   "version": "0.1.0",
   "description": "Switch between recently used Chrome tabs with an app-switcher style overlay.",
-  "permissions": ["tabs", "scripting"],
+  "permissions": ["tabs", "scripting", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js",

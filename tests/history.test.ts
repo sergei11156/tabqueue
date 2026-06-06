@@ -22,21 +22,21 @@ describe("RecentTabHistory", () => {
     history.record(tab(2));
     history.record(tab(1, 1, { title: "Again" }));
 
-    expect(history.snapshot(1).map((entry) => entry.id)).toEqual([1, 2]);
-    expect(history.snapshot(1)[0].title).toBe("Again");
+    expect(history.snapshot().map((entry) => entry.id)).toEqual([1, 2]);
+    expect(history.snapshot()[0].title).toBe("Again");
   });
 
-  it("keeps window histories separate", () => {
+  it("orders tabs globally across windows", () => {
     const history = new RecentTabHistory();
 
     history.record(tab(1, 1));
     history.record(tab(2, 2));
+    history.record(tab(3, 1));
 
-    expect(history.snapshot(1).map((entry) => entry.id)).toEqual([1]);
-    expect(history.snapshot(2).map((entry) => entry.id)).toEqual([2]);
+    expect(history.snapshot().map((entry) => entry.id)).toEqual([3, 2, 1]);
   });
 
-  it("removes closed tabs from every history", () => {
+  it("removes closed tabs from global history", () => {
     const history = new RecentTabHistory();
 
     history.record(tab(1, 1));
@@ -44,8 +44,7 @@ describe("RecentTabHistory", () => {
     history.record(tab(1, 2));
     history.remove(1);
 
-    expect(history.snapshot(1).map((entry) => entry.id)).toEqual([2]);
-    expect(history.snapshot(2)).toEqual([]);
+    expect(history.snapshot().map((entry) => entry.id)).toEqual([2]);
   });
 
   it("updates tracked tab metadata", () => {
@@ -54,7 +53,7 @@ describe("RecentTabHistory", () => {
     history.record(tab(1));
     history.update({ id: 1, title: "Updated", url: "https://updated.test/docs" });
 
-    expect(history.snapshot(1)[0]).toMatchObject({
+    expect(history.snapshot()[0]).toMatchObject({
       id: 1,
       title: "Updated",
       url: "https://updated.test/docs"
@@ -67,17 +66,17 @@ describe("RecentTabHistory", () => {
     history.record(tab(1));
     history.replace(1, tab(3));
 
-    expect(history.snapshot(1).map((entry) => entry.id)).toEqual([3]);
+    expect(history.snapshot().map((entry) => entry.id)).toEqual([3]);
   });
 
-  it("excludes the current tab and limits candidates", () => {
+  it("excludes the current tab and limits global candidates", () => {
     const history = new RecentTabHistory();
 
     for (let id = 1; id <= 12; id += 1) {
       history.record(tab(id));
     }
 
-    const candidates = history.candidates(1, 12);
+    const candidates = history.candidates(12, 1);
 
     expect(candidates).toHaveLength(10);
     expect(candidates[0]).toMatchObject({ id: 11, slot: 1 });
@@ -91,8 +90,52 @@ describe("RecentTabHistory", () => {
     history.record(tab(2, 1, { url: "chrome://extensions" }));
     history.record(tab(3, 1, { url: "about:blank" }));
 
-    expect(history.snapshot(1).map((entry) => entry.id)).toEqual([3, 2, 1]);
-    expect(history.candidates(1, 99).map((entry) => entry.id)).toEqual([3, 2, 1]);
+    expect(history.snapshot().map((entry) => entry.id)).toEqual([3, 2, 1]);
+    expect(history.candidates(99, 1).map((entry) => entry.id)).toEqual([3, 2, 1]);
+  });
+
+  it("marks candidate window context", () => {
+    const history = new RecentTabHistory();
+
+    history.record(tab(1, 1));
+    history.record(tab(2, 2));
+
+    expect(history.candidates(99, 1)).toEqual([
+      expect.objectContaining({
+        id: 2,
+        isCurrentWindow: false,
+        windowLabel: "Window 2"
+      }),
+      expect.objectContaining({
+        id: 1,
+        isCurrentWindow: true,
+        windowLabel: "This window"
+      })
+    ]);
+  });
+
+  it("restores serialized history while removing duplicate ids", () => {
+    const history = new RecentTabHistory();
+
+    history.restore([tab(1), tab(2), tab(1, 1, { title: "Duplicate" })]);
+
+    expect(history.snapshot().map((entry) => entry.id)).toEqual([1, 2]);
+    expect(history.snapshot()[0].title).toBe("Tab 1");
+  });
+
+  it("prunes stale restored entries and refreshes metadata from live tabs", () => {
+    const history = new RecentTabHistory();
+
+    history.restore([tab(1), tab(2), tab(3)]);
+    history.refreshFromLiveTabs([
+      tab(3, 4, { title: "Live 3", url: "https://live3.test" }),
+      tab(1, 2, { title: "Live 1", url: "https://live1.test" })
+    ]);
+
+    expect(history.snapshot()).toEqual([
+      expect.objectContaining({ id: 1, windowId: 2, title: "Live 1", url: "https://live1.test" }),
+      expect.objectContaining({ id: 3, windowId: 4, title: "Live 3", url: "https://live3.test" })
+    ]);
   });
 });
 

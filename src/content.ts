@@ -7,6 +7,7 @@ let activeOverlay: HTMLElement | undefined;
 let activeShadow: ShadowRoot | undefined;
 let timeoutId: number | undefined;
 let currentTabs: OverlayTabItem[] = [];
+let selectedIndex = 0;
 
 const globalState = globalThis as typeof globalThis & {
   __tabqueueContentLoaded?: boolean;
@@ -31,6 +32,7 @@ function showOverlay(tabs: OverlayTabItem[], timeoutMs: number): void {
   closeOverlay();
 
   currentTabs = tabs;
+  selectedIndex = tabs.length > 0 ? 0 : -1;
   const host = document.createElement("div");
   host.id = ROOT_ID;
   activeShadow = host.attachShadow({ mode: "open" });
@@ -82,6 +84,7 @@ function createTabItem(tab: OverlayTabItem): HTMLElement {
   item.className = `tabqueue-item ${tab.slot === 1 ? ACTIVE_CLASS : ""}`;
   item.setAttribute("role", "option");
   item.setAttribute("aria-selected", String(tab.slot === 1));
+  item.dataset.slot = String(tab.slot);
   item.addEventListener("click", () => selectTab(tab));
 
   const number = document.createElement("span");
@@ -116,8 +119,13 @@ function createTabItem(tab: OverlayTabItem): HTMLElement {
   url.className = "tabqueue-url";
   url.textContent = tab.displayUrl;
 
+  const context = document.createElement("span");
+  context.className = `tabqueue-window ${tab.isCurrentWindow ? "tabqueue-window-current" : ""}`;
+  context.textContent = tab.windowLabel;
+
   text.append(title, url);
   item.append(number, faviconWrap, text);
+  item.append(context);
 
   return item;
 }
@@ -134,6 +142,25 @@ function handleKeyDown(event: KeyboardEvent): void {
     return;
   }
 
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    event.stopPropagation();
+    moveSelection(event.key === "ArrowDown" ? 1 : -1);
+    return;
+  }
+
+  if (event.key === "Enter") {
+    const tab = currentTabs[selectedIndex];
+    if (!tab) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    selectTab(tab);
+    return;
+  }
+
   const slot = keyToSlot(event.key);
   if (!slot) {
     return;
@@ -147,6 +174,28 @@ function handleKeyDown(event: KeyboardEvent): void {
   event.preventDefault();
   event.stopPropagation();
   selectTab(tab);
+}
+
+function moveSelection(delta: number): void {
+  if (currentTabs.length === 0) {
+    return;
+  }
+
+  selectedIndex = (selectedIndex + delta + currentTabs.length) % currentTabs.length;
+  updateSelectedItem();
+}
+
+function updateSelectedItem(): void {
+  if (!activeShadow) {
+    return;
+  }
+
+  const items = activeShadow.querySelectorAll<HTMLElement>(".tabqueue-item");
+  items.forEach((item, index) => {
+    const selected = index === selectedIndex;
+    item.classList.toggle(ACTIVE_CLASS, selected);
+    item.setAttribute("aria-selected", String(selected));
+  });
 }
 
 function keyToSlot(key: string): number | undefined {
@@ -185,6 +234,7 @@ function closeOverlay(): void {
   activeOverlay = undefined;
   activeShadow = undefined;
   currentTabs = [];
+  selectedIndex = 0;
 }
 
 function fallbackInitial(title: string): string {

@@ -1,4 +1,5 @@
 import { RecentTabHistory } from "./history";
+import { loadStoredHistory, saveStoredHistory } from "./storage";
 import type { BackgroundMessage, ContentMessage, TabSnapshot } from "./types";
 import { isRestrictedUrl } from "./url";
 
@@ -6,6 +7,7 @@ const OVERLAY_TIMEOUT_MS = 5000;
 const SWITCH_COMMAND_PREFIX = "switch-to-recent-tab-";
 
 const history = new RecentTabHistory();
+const ready = initializeHistory();
 
 declare global {
   // Playwright evaluates inside the extension service worker; this hook lets E2E
@@ -17,7 +19,10 @@ declare global {
 }
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
-  void recordTabById(activeInfo.tabId);
+  void (async () => {
+    await ready;
+    await recordTabById(activeInfo.tabId);
+  })();
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -28,12 +33,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (tab.active && tab.id !== undefined && tab.windowId !== undefined) {
     const snapshot = toSnapshot(tab);
     if (snapshot) {
-      history.record(snapshot);
+      void recordAndPersist(snapshot);
     }
     return;
   }
 
-  history.update({
+  void updateAndPersist({
     id: tabId,
     title: tab.title,
     url: tab.url,
@@ -42,37 +47,60 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  history.remove(tabId);
+  void removeAndPersist(tabId);
 });
 
 chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   void (async () => {
+    await ready;
     const addedTab = await getTab(addedTabId);
     const snapshot = addedTab ? toSnapshot(addedTab) : undefined;
 
     if (snapshot) {
       history.replace(removedTabId, snapshot);
+      await persistHistory();
       return;
     }
 
-    history.remove(removedTabId);
+    await removeAndPersist(removedTabId);
   })();
 });
 
 chrome.windows.onRemoved.addListener((windowId) => {
   history.clearWindow(windowId);
+  void persistHistory();
+});
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    return;
+  }
+
+  void (async () => {
+    await ready;
+    const [tab] = await chrome.tabs.query({ active: true, windowId });
+    if (tab?.id !== undefined) {
+      await recordTabById(tab.id);
+    }
+  })();
 });
 
 chrome.commands.onCommand.addListener((command) => {
   if (command === "open-tab-switcher") {
-    void openOverlay();
+    void (async () => {
+      await ready;
+      await openOverlay();
+    })();
     return;
   }
 
   if (command.startsWith(SWITCH_COMMAND_PREFIX)) {
     const slot = Number(command.replace(SWITCH_COMMAND_PREFIX, ""));
     if (Number.isInteger(slot)) {
-      void switchToSlot(slot);
+      void (async () => {
+        await ready;
+        await switchToSlot(slot);
+      })();
     }
   }
 });
@@ -80,18 +108,21 @@ chrome.commands.onCommand.addListener((command) => {
 chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendResponse) => {
   void (async () => {
     if (message.type === "tabqueue:switch-to-tab") {
+      await ready;
       await switchToTab(message.tabId);
       sendResponse({ ok: true });
       return;
     }
 
     if (message.type === "tabqueue:test-open-overlay") {
+      await ready;
       await openOverlay();
       sendResponse({ ok: true });
       return;
     }
 
     if (message.type === "tabqueue:test-switch-slot") {
+      await ready;
       await switchToSlot(message.slot);
       sendResponse({ ok: true });
       return;
@@ -104,8 +135,14 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendR
 });
 
 globalThis.__tabqueueTest = {
-  openOverlay,
-  switchToSlot
+  openOverlay: async () => {
+    await ready;
+    await openOverlay();
+  },
+  switchToSlot: async (slot: number) => {
+    await ready;
+    await switchToSlot(slot);
+  }
 };
 
 async function recordTabById(tabId: number): Promise<void> {
@@ -113,11 +150,12 @@ async function recordTabById(tabId: number): Promise<void> {
   const snapshot = tab ? toSnapshot(tab) : undefined;
 
   if (snapshot) {
-    history.record(snapshot);
+    await recordAndPersist(snapshot);
   }
 }
 
 async function openOverlay(): Promise<void> {
+  await refreshLiveHistory();
   const activeTab = await getActiveTab();
   const activeSnapshot = activeTab ? toSnapshot(activeTab) : undefined;
 
@@ -125,9 +163,9 @@ async function openOverlay(): Promise<void> {
     return;
   }
 
-  history.record(activeSnapshot);
+  await recordAndPersist(activeSnapshot);
 
-  const candidates = history.candidates(activeSnapshot.windowId, activeSnapshot.id);
+  const candidates = history.candidates(activeSnapshot.id, activeSnapshot.windowId);
   const message: ContentMessage = {
     type: "tabqueue:show-overlay",
     tabs: candidates,
@@ -150,6 +188,7 @@ async function openOverlay(): Promise<void> {
 }
 
 async function switchToSlot(slot: number): Promise<void> {
+  await refreshLiveHistory();
   const activeTab = await getActiveTab();
   const activeSnapshot = activeTab ? toSnapshot(activeTab) : undefined;
 
@@ -157,7 +196,7 @@ async function switchToSlot(slot: number): Promise<void> {
     return;
   }
 
-  const selected = history.candidates(activeSnapshot.windowId, activeSnapshot.id)[slot - 1];
+  const selected = history.candidates(activeSnapshot.id, activeSnapshot.windowId)[slot - 1];
   if (!selected) {
     return;
   }
@@ -172,13 +211,14 @@ async function switchToTab(tabId: number): Promise<void> {
   const selectedTab = await getTab(tabId);
   const selectedSnapshot = selectedTab ? toSnapshot(selectedTab) : undefined;
 
-  if (!activeSnapshot || !selectedSnapshot || selectedSnapshot.windowId !== activeSnapshot.windowId) {
-    history.remove(tabId);
+  if (!activeSnapshot || !selectedSnapshot) {
+    await removeAndPersist(tabId);
     return;
   }
 
   await closeOverlay(activeSnapshot.id);
   await chrome.tabs.update(tabId, { active: true });
+  await chrome.windows.update(selectedSnapshot.windowId, { focused: true });
 }
 
 async function closeOverlay(tabId: number): Promise<void> {
@@ -190,7 +230,7 @@ async function closeOverlay(tabId: number): Promise<void> {
 }
 
 async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   return tabs[0];
 }
 
@@ -198,9 +238,43 @@ async function getTab(tabId: number): Promise<chrome.tabs.Tab | undefined> {
   try {
     return await chrome.tabs.get(tabId);
   } catch {
-    history.remove(tabId);
+    await removeAndPersist(tabId);
     return undefined;
   }
+}
+
+async function initializeHistory(): Promise<void> {
+  const stored = await loadStoredHistory();
+  history.restore(stored);
+  await refreshLiveHistory();
+}
+
+async function refreshLiveHistory(): Promise<void> {
+  const tabs = await chrome.tabs.query({});
+  history.refreshFromLiveTabs(tabs.map(toSnapshot).filter((tab): tab is TabSnapshot => tab !== undefined));
+  await persistHistory();
+}
+
+async function recordAndPersist(tab: TabSnapshot): Promise<void> {
+  await ready;
+  history.record(tab);
+  await persistHistory();
+}
+
+async function updateAndPersist(tab: Partial<TabSnapshot> & Pick<TabSnapshot, "id">): Promise<void> {
+  await ready;
+  history.update(tab);
+  await persistHistory();
+}
+
+async function removeAndPersist(tabId: number): Promise<void> {
+  await ready;
+  history.remove(tabId);
+  await persistHistory();
+}
+
+async function persistHistory(): Promise<void> {
+  await saveStoredHistory(history.snapshot());
 }
 
 function toSnapshot(tab: chrome.tabs.Tab): TabSnapshot | undefined {

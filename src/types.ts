@@ -9,7 +9,16 @@ export interface TabSnapshot {
 export interface OverlayTabItem extends TabSnapshot {
   slot: number;
   displayUrl: string;
+  isCurrentWindow: boolean;
+  windowLabel: string;
 }
+
+export interface SerializedTabHistory {
+  version: 1;
+  tabs: TabSnapshot[];
+}
+
+export const TAB_HISTORY_STORAGE_KEY = "tabqueue:global-history";
 
 export type BackgroundMessage =
   | {

@@ -4,35 +4,24 @@ import { toDisplayUrl } from "./url";
 const DEFAULT_LIMIT = 10;
 
 export class RecentTabHistory {
-  private readonly histories = new Map<number, TabSnapshot[]>();
+  private history: TabSnapshot[] = [];
 
   record(tab: TabSnapshot): void {
-    const current = this.histories.get(tab.windowId) ?? [];
-    const withoutDuplicate = current.filter((entry) => entry.id !== tab.id);
-    this.histories.set(tab.windowId, [tab, ...withoutDuplicate]);
+    const withoutDuplicate = this.history.filter((entry) => entry.id !== tab.id);
+    this.history = [tab, ...withoutDuplicate];
   }
 
   update(tab: Partial<TabSnapshot> & Pick<TabSnapshot, "id">): void {
-    for (const [windowId, history] of this.histories.entries()) {
-      const index = history.findIndex((entry) => entry.id === tab.id);
-      if (index === -1) {
-        continue;
-      }
-
-      const next = { ...history[index], ...tab };
-      history[index] = next;
-      this.setOrDelete(windowId, history);
+    const index = this.history.findIndex((entry) => entry.id === tab.id);
+    if (index === -1) {
       return;
     }
+
+    this.history[index] = { ...this.history[index], ...tab };
   }
 
   remove(tabId: number): void {
-    for (const [windowId, history] of this.histories.entries()) {
-      this.setOrDelete(
-        windowId,
-        history.filter((entry) => entry.id !== tabId)
-      );
-    }
+    this.history = this.history.filter((entry) => entry.id !== tabId);
   }
 
   replace(removedTabId: number, addedTab: TabSnapshot): void {
@@ -41,32 +30,45 @@ export class RecentTabHistory {
   }
 
   clearWindow(windowId: number): void {
-    this.histories.delete(windowId);
+    this.history = this.history.filter((entry) => entry.windowId !== windowId);
   }
 
-  candidates(windowId: number, currentTabId: number, limit = DEFAULT_LIMIT): OverlayTabItem[] {
-    const history = this.histories.get(windowId) ?? [];
+  restore(tabs: TabSnapshot[]): void {
+    const seen = new Set<number>();
+    this.history = [];
 
-    return history
+    for (const tab of tabs) {
+      if (seen.has(tab.id)) {
+        continue;
+      }
+
+      seen.add(tab.id);
+      this.history.push(tab);
+    }
+  }
+
+  refreshFromLiveTabs(liveTabs: TabSnapshot[]): void {
+    const liveById = new Map(liveTabs.map((tab) => [tab.id, tab]));
+
+    this.history = this.history
+      .map((entry) => liveById.get(entry.id))
+      .filter((entry): entry is TabSnapshot => entry !== undefined);
+  }
+
+  candidates(currentTabId: number, currentWindowId: number, limit = DEFAULT_LIMIT): OverlayTabItem[] {
+    return this.history
       .filter((entry) => entry.id !== currentTabId)
       .slice(0, limit)
       .map((entry, index) => ({
         ...entry,
         slot: index + 1,
-        displayUrl: toDisplayUrl(entry.url)
+        displayUrl: toDisplayUrl(entry.url),
+        isCurrentWindow: entry.windowId === currentWindowId,
+        windowLabel: entry.windowId === currentWindowId ? "This window" : `Window ${entry.windowId}`
       }));
   }
 
-  snapshot(windowId: number): TabSnapshot[] {
-    return [...(this.histories.get(windowId) ?? [])];
-  }
-
-  private setOrDelete(windowId: number, history: TabSnapshot[]): void {
-    if (history.length === 0) {
-      this.histories.delete(windowId);
-      return;
-    }
-
-    this.histories.set(windowId, history);
+  snapshot(): TabSnapshot[] {
+    return [...this.history];
   }
 }
