@@ -1,0 +1,22 @@
+{
+  "name": "tabqueue",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome MV3 recent tab switcher extension.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "validate:dist": "node scripts/validate-dist.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.0",
+    "@types/chrome": "^0.0.326",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.8"
+  }
+}

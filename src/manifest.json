@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "TabQueue Recent Tab Switcher",
+  "version": "0.1.0",
+  "description": "Switch between recently used Chrome tabs with an app-switcher style overlay.",
+  "permissions": ["tabs", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["overlay.css"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "commands": {
+    "open-tab-switcher": {
+      "suggested_key": {
+        "default": "Alt+Shift+Space",
+        "mac": "Command+Shift+Space"
+      },
+      "description": "Open recent tab switcher"
+    },
+    "switch-to-recent-tab-1": {
+      "description": "Switch to recent tab 1"
+    },
+    "switch-to-recent-tab-2": {
+      "description": "Switch to recent tab 2"
+    },
+    "switch-to-recent-tab-3": {
+      "description": "Switch to recent tab 3"
+    },
+    "switch-to-recent-tab-4": {
+      "description": "Switch to recent tab 4"
+    },
+    "switch-to-recent-tab-5": {
+      "description": "Switch to recent tab 5"
+    },
+    "switch-to-recent-tab-6": {
+      "description": "Switch to recent tab 6"
+    },
+    "switch-to-recent-tab-7": {
+      "description": "Switch to recent tab 7"
+    },
+    "switch-to-recent-tab-8": {
+      "description": "Switch to recent tab 8"
+    },
+    "switch-to-recent-tab-9": {
+      "description": "Switch to recent tab 9"
+    },
+    "switch-to-recent-tab-10": {
+      "description": "Switch to recent tab 10"
+    }
+  }
+}
